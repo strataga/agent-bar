@@ -1,0 +1,15 @@
+{
+  "claude_daily_limit": 10000000,
+  "claude_weekly_limit": 50000000,
+  "codex_input_rate": 0.0000025,
+  "codex_output_rate": 0.000010,
+  "codex_cache_ttl": 30,
+  "sections": {
+    "header": true,
+    "context": true,
+    "claude": true,
+    "codex": true,
+    "auth": true
+  },
+  "bar_width": 10
+}
