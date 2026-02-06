@@ -1,13 +1,13 @@
 # agent-bar
 
-A multi-service status bar for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that shows real-time context usage, rate limits, cost tracking, and OAuth status — with built-in support for Claude Code and OpenAI Codex (via [OpenClaw](https://openclaw.ai)).
+A multi-service status bar for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that shows real-time context usage, rate limits, cost tracking, and OAuth status — with built-in support for Claude Code and OpenAI Codex.
 
 ```
 Opus 4.6  projects/factory  main  +37 -12
 context  ======----  62%  2Min/428kout  $4.98 ($3.53/hr)  84m33s  cache:80%  cpu:38% mem:4%
 claude   =======--- 75%/day 3M/10M ~10h37m | =========- 95%/wk 3M/50M ~2d10h | ~$4.43
-codex    ========-- 84%/5h ~4h 1m          | ===------- 37%/day ~2d 22h       | ~$0.55
-auth     claude:5h48m | codex:9d22h
+codex    ========-- 84%/5h ~4h 1m          | ===------- 37%/wk ~2d 22h       | ~$0.55
+auth     claude:5h48m | codex:6d0h
 ```
 
 ## Features
@@ -47,25 +47,25 @@ Usage is self-tracked across sessions in `~/.claude/agent-bar-usage.json`. Limit
 
 > **Note:** Anthropic does not publish exact token limits for Max plans. The defaults (10M/day, 50M/week) are estimates for Max 20x. Adjust to match your experience.
 
-### Line 4 — Codex Rate Limits (OpenClaw)
+### Line 4 — Codex Rate Limits
 
 | Element | Description |
 |---------|-------------|
 | **5h bar** | % remaining in the rolling 5-hour window |
-| **Daily bar** | % remaining of daily quota |
+| **Weekly bar** | % remaining of weekly quota |
 | **Reset countdowns** | Time until each window resets |
 | **Estimated cost** | API-equivalent cost based on session tokens |
 
-Rate limit data is fetched from `openclaw models` and cached for 30 seconds to avoid slowing the bar.
+Rate limit data is read directly from Codex session files in `~/.codex/sessions/`.
 
-> This line only appears if [OpenClaw](https://openclaw.ai) is installed and configured with an OpenAI Codex auth profile.
+> This line only appears if the `codex` CLI is installed and has session data.
 
 ### Line 5 — OAuth Status
 
 | Element | Description |
 |---------|-------------|
 | **claude** | Time until Claude Code OAuth token expires |
-| **codex** | Time until Codex OAuth token expires |
+| **codex** | Time until Codex OAuth token expires (decoded from JWT) |
 
 ## Color System
 
@@ -108,7 +108,7 @@ Bars use `=` for filled and `-` for empty, colored by threshold:
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (any plan)
 - [`jq`](https://jqlang.github.io/jq/) — JSON processing
 - `git` — for branch detection
-- **Optional:** [OpenClaw](https://openclaw.ai) — for Codex rate limit tracking
+- **Optional:** [Codex CLI](https://github.com/openai/codex) — for Codex rate limit tracking
 
 ## Installation
 
@@ -158,7 +158,6 @@ Create `~/.claude/agent-bar.json` to override defaults:
 {
   "claude_daily_limit": 10000000,
   "claude_weekly_limit": 50000000,
-  "codex_cache_ttl": 30,
   "bar_width": 10,
   "sections": {
     "header": true,
@@ -191,9 +190,9 @@ These are estimates. Adjust based on your actual usage patterns.
 | Session tokens, cost, context % | Claude Code status line JSON (piped to stdin) |
 | Claude OAuth expiry | `~/.claude/.credentials.json` |
 | Claude daily/weekly usage | Self-tracked in `~/.claude/agent-bar-usage.json` |
-| Codex rate limits | `openclaw models` (cached to `/tmp/agent-bar-codex-cache.json`) |
-| Codex OAuth expiry | `~/.openclaw/agents/main/agent/auth-profiles.json` |
-| Codex session tokens | `~/.openclaw/agents/main/sessions/sessions.json` |
+| Codex rate limits | `~/.codex/sessions/` (latest session's `token_count` event) |
+| Codex OAuth expiry | `~/.codex/auth.json` (JWT `exp` claim) |
+| Codex session tokens | `~/.codex/sessions/` (cumulative input/output tokens) |
 | Git branch | `git branch --show-current` |
 | CPU / Memory | `ps aux` (Claude process) |
 
@@ -232,17 +231,11 @@ Claude Code pipes a JSON object to the status line script's stdin on every updat
 
 **Empty bars / missing data:**
 - First run may show `0%` for daily/weekly until tokens accumulate
-- Codex bars only appear after `openclaw models` returns data
-- Cache file at `/tmp/agent-bar-codex-cache.json` may need seeding
+- Codex bars only appear when `codex` is installed and has session data
 
 **Codex line not appearing:**
-- Requires [OpenClaw](https://openclaw.ai) installed and configured
-- Run `openclaw models` manually to verify it returns usage data
-- Check that `openclaw` is in your PATH
-
-**Slow status bar:**
-- Increase `codex_cache_ttl` (e.g., `60` seconds) in your config
-- The `openclaw models` call runs in the background and shouldn't block rendering
+- Requires the `codex` CLI to be installed and in your PATH
+- Run a Codex session first to generate session data in `~/.codex/sessions/`
 
 **Wrong daily/weekly limits:**
 - Set `claude_daily_limit` and `claude_weekly_limit` in `~/.claude/agent-bar.json`

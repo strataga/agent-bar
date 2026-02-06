@@ -20,7 +20,6 @@ Example `~/.claude/agent-bar.json`:
   "claude_weekly_limit": 50000000,
   "codex_input_rate": 0.0000025,
   "codex_output_rate": 0.000010,
-  "codex_cache_ttl": 30,
   "bar_width": 10,
   "sections": {
     "header": true,
@@ -55,13 +54,12 @@ The status bar has 5 lines. Disable any section by setting it to `false` in `~/.
 | 1 | Header | Model name, directory, git branch, lines changed |
 | 2 | context | Context window bar, tokens, cost, burn rate, cache hit %, CPU/mem |
 | 3 | claude | Daily + weekly usage bars with limits and reset countdowns |
-| 4 | codex | 5h + daily rate limit bars with reset countdowns and estimated cost |
+| 4 | codex | 5h + weekly rate limit bars with reset countdowns and estimated cost |
 | 5 | auth | OAuth token expiry countdowns for both services |
 
 ## Common Tasks
 
 - **Change Claude plan limits**: Set `claude_daily_limit` and `claude_weekly_limit`
-- **Disable Codex section**: Set `sections.codex` to `false` (users without OpenClaw)
+- **Disable Codex section**: Set `sections.codex` to `false` (users without Codex CLI)
 - **Disable auth line**: Set `sections.auth` to `false`
 - **Change bar width**: Set `bar_width` (default: 10 characters)
-- **Change Codex refresh rate**: Set `codex_cache_ttl` (lower = more frequent, may slow bar)

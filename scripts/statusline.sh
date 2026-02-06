@@ -3,10 +3,10 @@ input=$(cat)
 
 # --- Paths ---
 CLAUDE_CREDS="$HOME/.claude/.credentials.json"
-CODEX_AUTH="$HOME/.openclaw/agents/main/agent/auth-profiles.json"
-CODEX_SESSIONS="$HOME/.openclaw/agents/main/sessions/sessions.json"
+CODEX_DIR="$HOME/.codex"
+CODEX_AUTH_FILE="$CODEX_DIR/auth.json"
+CODEX_SESSIONS_DIR="$CODEX_DIR/sessions"
 USAGE_LOG="$HOME/.claude/agent-bar-usage.json"
-CODEX_CACHE="/tmp/agent-bar-codex-cache.json"
 SETTINGS="$HOME/.claude/agent-bar.json"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEFAULTS="$SCRIPT_DIR/defaults.json"
@@ -23,7 +23,6 @@ CLAUDE_DAILY_LIMIT=$(cfg '.claude_daily_limit' '10000000')
 CLAUDE_WEEKLY_LIMIT=$(cfg '.claude_weekly_limit' '50000000')
 CODEX_INPUT_RATE=$(cfg '.codex_input_rate' '0.0000025')
 CODEX_OUTPUT_RATE=$(cfg '.codex_output_rate' '0.000010')
-CODEX_CACHE_TTL=$(cfg '.codex_cache_ttl' '30')
 BAR_WIDTH=$(cfg '.bar_width' '10')
 
 SEC_HEADER=$(cfg '.sections.header' 'true')
@@ -166,63 +165,86 @@ if [ -f "$CLAUDE_CREDS" ]; then
   fi
 fi
 
-# --- Codex OAuth ---
+# --- Codex data (read from ~/.codex session files) ---
 CODEX_TTL=""
 CODEX_TTL_C="$G"
-if [ -f "$CODEX_AUTH" ]; then
-  CODEX_EXP=$(jq -r '.profiles["openai-codex:default"].expires // 0' "$CODEX_AUTH" 2>/dev/null)
-  if [ "$CODEX_EXP" -gt 0 ] 2>/dev/null; then
-    CODEX_TTL=$(oauth_countdown "$CODEX_EXP")
-    CODEX_TTL_C=$(oauth_color "$CODEX_EXP")
-  fi
-fi
-
-# --- Codex rate limits (cached) ---
-CODEX_HOURLY=""
-CODEX_DAILY=""
-CODEX_H_RESET=""
-CODEX_D_RESET=""
-CODEX_HOURLY_C="$G"
-CODEX_DAILY_C="$G"
-
-if command -v openclaw &>/dev/null; then
-  refresh_codex_cache() {
-    local line
-    line=$(openclaw models 2>/dev/null | grep "usage:")
-    if [ -n "$line" ]; then
-      local h_pct d_pct h_reset d_reset
-      h_pct=$(echo "$line" | sed -E 's/.*usage: [^ ]+ ([0-9]+)% left.*/\1/')
-      d_pct=$(echo "$line" | sed -E 's/.*Day ([0-9]+)% left.*/\1/')
-      h_reset=$(echo "$line" | sed -E 's/.*left ⏱([0-9]+[hdm] ?[0-9]*[hdm]?) ·.*/\1/')
-      d_reset=$(echo "$line" | sed -E 's/.*Day [0-9]+% left ⏱(.*)/\1/')
-      echo "{\"hourly\":$h_pct,\"daily\":$d_pct,\"h_reset\":\"$h_reset\",\"d_reset\":\"$d_reset\",\"ts\":$(date +%s)}" > "$CODEX_CACHE"
-    fi
-  }
-
-  NEED_REFRESH=1
-  if [ -f "$CODEX_CACHE" ]; then
-    CACHE_TS=$(jq -r '.ts // 0' "$CODEX_CACHE" 2>/dev/null)
-    AGE=$(( $(date +%s) - CACHE_TS ))
-    [ "$AGE" -lt "$CODEX_CACHE_TTL" ] && NEED_REFRESH=0
-  fi
-  [ "$NEED_REFRESH" -eq 1 ] && refresh_codex_cache &
-
-  if [ -f "$CODEX_CACHE" ]; then
-    CODEX_HOURLY=$(jq -r '.hourly // ""' "$CODEX_CACHE" 2>/dev/null)
-    CODEX_DAILY=$(jq -r '.daily // ""' "$CODEX_CACHE" 2>/dev/null)
-    CODEX_H_RESET=$(jq -r '.h_reset // ""' "$CODEX_CACHE" 2>/dev/null)
-    CODEX_D_RESET=$(jq -r '.d_reset // ""' "$CODEX_CACHE" 2>/dev/null)
-    [ -n "$CODEX_HOURLY" ] && CODEX_HOURLY_C=$(pct_color_remaining "$CODEX_HOURLY")
-    [ -n "$CODEX_DAILY" ] && CODEX_DAILY_C=$(pct_color_remaining "$CODEX_DAILY")
-  fi
-fi
-
-# --- Codex estimated cost (sum totalTokens across all sessions, estimate 85/15 in/out split) ---
+CODEX_PRIMARY_REM=""
+CODEX_SECONDARY_REM=""
+CODEX_P_RESET=""
+CODEX_S_RESET=""
+CODEX_PRIMARY_C="$G"
+CODEX_SECONDARY_C="$G"
 CODEX_COST=""
-if [ -f "$CODEX_SESSIONS" ]; then
-  CX_TOTAL=$(jq '[.[] | .totalTokens // 0] | add // 0' "$CODEX_SESSIONS" 2>/dev/null)
-  if [ "${CX_TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-    CODEX_COST=$(awk "BEGIN {printf \"%.2f\", ($CX_TOTAL * 0.85 * $CODEX_INPUT_RATE) + ($CX_TOTAL * 0.15 * $CODEX_OUTPUT_RATE)}")
+
+if command -v codex &>/dev/null && [ -d "$CODEX_SESSIONS_DIR" ]; then
+  # Find latest session file
+  CODEX_LATEST=$(find "$CODEX_SESSIONS_DIR" -name '*.jsonl' -type f 2>/dev/null | sort | tail -1)
+
+  if [ -n "$CODEX_LATEST" ]; then
+    # Get last token_count event from session
+    CODEX_DATA=$(grep '"token_count"' "$CODEX_LATEST" 2>/dev/null | tail -1)
+
+    if [ -n "$CODEX_DATA" ]; then
+      # Rate limits — primary (5h window) and secondary (weekly)
+      CX_P_USED=$(echo "$CODEX_DATA" | jq -r '.payload.rate_limits.primary.used_percent // empty' 2>/dev/null | cut -d. -f1)
+      CX_S_USED=$(echo "$CODEX_DATA" | jq -r '.payload.rate_limits.secondary.used_percent // empty' 2>/dev/null | cut -d. -f1)
+      CX_P_RESETS=$(echo "$CODEX_DATA" | jq -r '.payload.rate_limits.primary.resets_at // empty' 2>/dev/null)
+      CX_S_RESETS=$(echo "$CODEX_DATA" | jq -r '.payload.rate_limits.secondary.resets_at // empty' 2>/dev/null)
+
+      if [ -n "$CX_P_USED" ]; then
+        CODEX_PRIMARY_REM=$(( 100 - CX_P_USED ))
+        [ "$CODEX_PRIMARY_REM" -lt 0 ] && CODEX_PRIMARY_REM=0
+        CODEX_PRIMARY_C=$(pct_color_remaining "$CODEX_PRIMARY_REM")
+      fi
+      if [ -n "$CX_S_USED" ]; then
+        CODEX_SECONDARY_REM=$(( 100 - CX_S_USED ))
+        [ "$CODEX_SECONDARY_REM" -lt 0 ] && CODEX_SECONDARY_REM=0
+        CODEX_SECONDARY_C=$(pct_color_remaining "$CODEX_SECONDARY_REM")
+      fi
+
+      # Reset countdowns from epoch seconds
+      if [ -n "$CX_P_RESETS" ]; then
+        CX_P_LEFT=$(( CX_P_RESETS - $(date +%s) ))
+        [ "$CX_P_LEFT" -gt 0 ] && CODEX_P_RESET="$(( CX_P_LEFT / 3600 ))h$(( (CX_P_LEFT % 3600) / 60 ))m"
+      fi
+      if [ -n "$CX_S_RESETS" ]; then
+        CX_S_LEFT=$(( CX_S_RESETS - $(date +%s) ))
+        if [ "$CX_S_LEFT" -gt 0 ]; then
+          CX_S_DAYS=$(( CX_S_LEFT / 86400 ))
+          CX_S_HRS=$(( (CX_S_LEFT % 86400) / 3600 ))
+          if [ "$CX_S_DAYS" -gt 0 ]; then
+            CODEX_S_RESET="${CX_S_DAYS}d ${CX_S_HRS}h"
+          else
+            CODEX_S_RESET="${CX_S_HRS}h$(( (CX_S_LEFT % 3600) / 60 ))m"
+          fi
+        fi
+      fi
+
+      # Token counts for cost estimation
+      CX_IN=$(echo "$CODEX_DATA" | jq -r '.payload.info.total_token_usage.input_tokens // 0' 2>/dev/null)
+      CX_OUT=$(echo "$CODEX_DATA" | jq -r '.payload.info.total_token_usage.output_tokens // 0' 2>/dev/null)
+      if [ "${CX_IN:-0}" -gt 0 ] || [ "${CX_OUT:-0}" -gt 0 ]; then
+        CODEX_COST=$(awk "BEGIN {printf \"%.2f\", (${CX_IN:-0} * $CODEX_INPUT_RATE) + (${CX_OUT:-0} * $CODEX_OUTPUT_RATE)}")
+      fi
+    fi
+  fi
+
+  # Codex OAuth — decode JWT expiry from access token
+  if [ -f "$CODEX_AUTH_FILE" ]; then
+    CX_TOKEN=$(jq -r '.tokens.access_token // empty' "$CODEX_AUTH_FILE" 2>/dev/null)
+    if [ -n "$CX_TOKEN" ]; then
+      # JWT uses base64url — convert to standard base64 and add padding
+      CX_PAYLOAD=$(echo "$CX_TOKEN" | cut -d. -f2 | tr '_-' '/+')
+      case $(( ${#CX_PAYLOAD} % 4 )) in
+        2) CX_PAYLOAD+="==" ;; 3) CX_PAYLOAD+="=" ;;
+      esac
+      CX_EXP_S=$(echo "$CX_PAYLOAD" | base64 -d 2>/dev/null | jq -r '.exp // 0' 2>/dev/null)
+      if [ "${CX_EXP_S:-0}" -gt 0 ] 2>/dev/null; then
+        CX_EXP_MS=$(( CX_EXP_S * 1000 ))
+        CODEX_TTL=$(oauth_countdown "$CX_EXP_MS")
+        CODEX_TTL_C=$(oauth_color "$CX_EXP_MS")
+      fi
+    fi
   fi
 fi
 
@@ -313,15 +335,15 @@ if [ "$SEC_CLAUDE" = "true" ]; then
 fi
 
 # --- Line 4: codex rate limits ---
-if [ "$SEC_CODEX" = "true" ] && [ -n "$CODEX_HOURLY" ]; then
-  L4="${LBL_CX} $(make_bar "$CODEX_HOURLY" "$BAR_WIDTH" "$CODEX_HOURLY_C")"
-  L4+=" ${CODEX_HOURLY_C}${B}$(printf '%4s' "${CODEX_HOURLY}%")${X}"
-  _d="/5h ${CODEX_H_RESET:+~$CODEX_H_RESET}"
+if [ "$SEC_CODEX" = "true" ] && [ -n "$CODEX_PRIMARY_REM" ]; then
+  L4="${LBL_CX} $(make_bar "$CODEX_PRIMARY_REM" "$BAR_WIDTH" "$CODEX_PRIMARY_C")"
+  L4+=" ${CODEX_PRIMARY_C}${B}$(printf '%4s' "${CODEX_PRIMARY_REM}%")${X}"
+  _d="/5h ${CODEX_P_RESET:+~$CODEX_P_RESET}"
   L4+="${D}$(printf '%-21s' "$_d")${X}"
-  if [ -n "$CODEX_DAILY" ]; then
-    L4+="${S}$(make_bar "${CODEX_DAILY}" "$BAR_WIDTH" "$CODEX_DAILY_C")"
-    L4+=" ${CODEX_DAILY_C}${B}$(printf '%4s' "${CODEX_DAILY}%")${X}"
-    _d="/day ${CODEX_D_RESET:+~$CODEX_D_RESET}"
+  if [ -n "$CODEX_SECONDARY_REM" ]; then
+    L4+="${S}$(make_bar "${CODEX_SECONDARY_REM}" "$BAR_WIDTH" "$CODEX_SECONDARY_C")"
+    L4+=" ${CODEX_SECONDARY_C}${B}$(printf '%4s' "${CODEX_SECONDARY_REM}%")${X}"
+    _d="/wk ${CODEX_S_RESET:+~$CODEX_S_RESET}"
     L4+="${D}$(printf '%-21s' "$_d")${X}"
   fi
   [ -n "$CODEX_COST" ] && L4+="${S}${D}~\$${CODEX_COST}${X}"
