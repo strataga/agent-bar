@@ -113,7 +113,7 @@ Bars use `=` for filled and `-` for empty, colored by threshold:
 ## Installation
 
 ```bash
-git clone https://github.com/jasonjmcghee/agent-bar.git
+git clone https://github.com/strataga/agent-bar.git
 cd agent-bar
 ./scripts/install.sh
 ```
@@ -121,7 +121,8 @@ cd agent-bar
 The installer:
 1. Copies `statusline.sh` to `~/.claude/statusline.sh`
 2. Adds the `statusLine` config to `~/.claude/settings.json`
-3. Restart Claude Code to activate
+
+After installing, restart Claude Code to activate.
 
 ### Manual Installation
 
@@ -145,10 +146,10 @@ Add to `~/.claude/settings.json`:
 ### As a Claude Code Plugin
 
 ```bash
-claude plugin add /path/to/agent-bar
+claude plugin install /path/to/agent-bar
 ```
 
-This registers the configuration skill so you can ask Claude to adjust your status bar settings.
+This registers agent-bar as a Claude Code plugin.
 
 ## Configuration
 
@@ -158,6 +159,8 @@ Create `~/.claude/agent-bar.json` to override defaults:
 {
   "claude_daily_limit": 10000000,
   "claude_weekly_limit": 50000000,
+  "codex_input_rate": 0.0000025,
+  "codex_output_rate": 0.000010,
   "bar_width": 10,
   "sections": {
     "header": true,
@@ -169,7 +172,7 @@ Create `~/.claude/agent-bar.json` to override defaults:
 }
 ```
 
-Only include the keys you want to override. Unset keys fall back to `scripts/defaults.json`.
+Only include the keys you want to override. Unset keys use built-in defaults (10M daily, 50M weekly, bar width 10, all sections enabled).
 
 ### Suggested limits by plan
 
