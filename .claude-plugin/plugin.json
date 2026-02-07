@@ -1,7 +1,7 @@
 {
   "name": "agent-bar",
   "description": "A multi-service status bar for Claude Code showing context usage, rate limits, OAuth countdowns, cost tracking, and more — with support for Claude Code and OpenAI Codex.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Jason Cochran"
   }
