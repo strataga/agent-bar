@@ -4,7 +4,7 @@
   "plugins": [
     {
       "name": "agent-bar",
-      "source": ".",
+      "source": "./",
       "description": "Multi-service status bar for Claude Code"
     }
   ]
