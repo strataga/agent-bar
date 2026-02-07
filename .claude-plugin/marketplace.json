@@ -1,0 +1,11 @@
+{
+  "name": "agent-bar",
+  "owner": { "name": "Jason Cochran" },
+  "plugins": [
+    {
+      "name": "agent-bar",
+      "source": ".",
+      "description": "Multi-service status bar for Claude Code"
+    }
+  ]
+}

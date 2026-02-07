@@ -112,17 +112,30 @@ Bars use `=` for filled and `-` for empty, colored by threshold:
 
 ## Installation
 
+### As a Claude Code Plugin (recommended)
+
+```
+/plugin marketplace add strataga/agent-bar
+/plugin install agent-bar
+```
+
+Then run the setup skill to configure the statusline:
+
+```
+/agent-bar:setup
+```
+
+Restart Claude Code to activate.
+
+### Via Install Script
+
 ```bash
 git clone https://github.com/strataga/agent-bar.git
 cd agent-bar
 ./scripts/install.sh
 ```
 
-The installer:
-1. Copies `statusline.sh` to `~/.claude/statusline.sh`
-2. Adds the `statusLine` config to `~/.claude/settings.json`
-
-After installing, restart Claude Code to activate.
+The installer copies `statusline.sh` to `~/.claude/statusline.sh` and adds the `statusLine` config to `~/.claude/settings.json`. Restart Claude Code to activate.
 
 ### Manual Installation
 
@@ -142,14 +155,6 @@ Add to `~/.claude/settings.json`:
   }
 }
 ```
-
-### As a Claude Code Plugin
-
-```bash
-claude plugin install /path/to/agent-bar
-```
-
-This registers agent-bar as a Claude Code plugin.
 
 ## Configuration
 
